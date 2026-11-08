@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1f3864"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>NFL Picks</title>
+<style>
+:root{--bg:#f4f6fa;--c:#fff;--t:#1b1b1b;--m:#5a6672;--b:#1f3864;--g:#e2efda;--l:#d5dbe6}
+@media(prefers-color-scheme:dark){:root{--bg:#12161c;--c:#1c222b;--t:#e8e8e8;--m:#9aa5b1;--b:#4a6fb5;--g:#24402a;--l:#333c48}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.35 -apple-system,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--t)}
+header{background:#1f3864;color:#fff;padding:12px 14px;position:sticky;top:0;z-index:5}
+h1{margin:0 0 6px;font-size:18px}button{font:inherit;border:0;border-radius:8px;padding:9px 14px;background:#fff;color:#1f3864;font-weight:700}
+#st{font-size:12px;opacity:.9;margin-top:6px}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px}.ctl label{font-size:12px;color:var(--m);display:flex;flex-direction:column;gap:2px}
+input,select{font:inherit;padding:6px;border:1px solid var(--l);border-radius:6px;background:var(--c);color:var(--t)}
+.g{background:var(--c);margin:8px 10px;border-radius:12px;padding:10px;display:flex;gap:10px;box-shadow:0 1px 3px #0002}
+.rk{min-width:46px;text-align:center;background:var(--g);border-radius:10px;padding:6px 2px}.rk b{font-size:22px;display:block}.rk span{font-size:10px;color:var(--m)}
+.pk{font-size:19px;font-weight:700}.sub{font-size:12px;color:var(--m);margin:2px 0 6px}
+.g input{width:68px;padding:4px}details{margin:6px 14px;font-size:13px}.note{font-size:12px;color:var(--m);margin:10px 14px 30px}
+</style></head><body>
+<header><h1>NFL Picks &middot; C2 model</h1><button id="go">Refresh odds &amp; picks</button><div id="st">Tap refresh to load.</div></header>
+<div class="ctl">
+<label>Week<select id="wk"></select></label>
+<label>Games in week<input id="n" type="number" min="11" max="16" style="width:70px"></label>
+<label>Ranks already used<input id="used" placeholder="e.g. 9, 3" style="width:100px"></label>
+<label>Rank by<select id="rb"><option value="m">Model win chance</option><option value="ml">Moneyline</option></select></label></div>
+<details><summary>Optional: The Odds API key (stays on this phone)</summary><input id="key" placeholder="paste key" style="width:100%;margin-top:6px"></details>
+<div id="out"></div>
+<div class="note">Enter the two scores shown (away first). Rank 1 = least sure; highest number = most sure. Lines can be typed over. Model: games since 2006 weighted by spread, slid to each game's lines, lightly blurred, then the pick with the best expected points under the league rules. Expected pts = (win + rank pts &times; rank) &times; win chance + score-pick pts. Lines come from ESPN (DraftKings) or The Odds API when reachable, otherwise the free nflverse table (can lag). Verify lines against your sportsbook.</div>
+<script>
+const $=id=>document.getElementById(id),G=91;
+const SC={11:[4.84,.63,2.29,-3.18,196,.11,4.84],12:[4.44,.532,2.1,-2.92,214,.11,4.44],13:[4.09,.457,1.94,-2.69,232,.11,4.09],14:[3.8,.396,1.8,-2.5,250,.11,3.8],15:[3.55,.345,1.68,-2.33,268,.11,3.55],16:[3.33,.304,1.58,-2.19,286,.11,3.33]};
+const NICK={Cardinals:'ARI',Falcons:'ATL',Ravens:'BAL',Bills:'BUF',Panthers:'CAR',Bears:'CHI',Bengals:'CIN',Browns:'CLE',Cowboys:'DAL',Broncos:'DEN',Lions:'DET',Packers:'GB',Texans:'HOU',Colts:'IND',Jaguars:'JAX',Chiefs:'KC',Raiders:'LV',Chargers:'LAC',Rams:'LA',Dolphins:'MIA',Vikings:'MIN',Patriots:'NE',Saints:'NO',Giants:'NYG',Jets:'NYJ',Eagles:'PHI',Steelers:'PIT','49ers':'SF',Seahawks:'SEA',Buccaneers:'TB',Titans:'TEN',Commanders:'WAS'};
+const FIX={WSH:'WAS',LAR:'LA'};
+let D=null,H=[],games=[],cache={};
+function sp(l){const o=[];let c='',q=0;for(const ch of l){if(ch=='"')q=!q;else if(ch==','&&!q){o.push(c);c=''}else c+=ch}o.push(c);return o}
+function build(t){
+  const L=t.split('\n'),h=L[0].split(','),ix={};h.forEach((c,i)=>ix[c.trim()]=i);
+  const rows=[];for(let i=1;i<L.length;i++){if(L[i])rows.push(L[i].includes('"')?sp(L[i]):L[i].split(','))}
+  const g=(r,k)=>r[ix[k]];let ms=0;for(const r of rows){const s=+g(r,'season');if(s>ms)ms=s}
+  const hist=[],up=[],wkAll={};
+  for(const r of rows){
+    const s=+g(r,'season'),hs=g(r,'home_score'),sl=g(r,'spread_line'),tl=g(r,'total_line'),played=hs!=='',hasL=sl!==''&&tl!=='';
+    if(played&&hasL&&s>=2006){const x=+sl,fh=x>=0,hh=+hs,aa=+g(r,'away_score');hist.push({s:Math.abs(x),o:+tl,F:fh?hh:aa,D:fh?aa:hh,p:hist.length%2})}
+    if(s==ms&&g(r,'game_type')=='REG'){const w=+g(r,'week');wkAll[w]=(wkAll[w]||0)+1;
+      if(!played&&hasL){const hm=g(r,'home_moneyline'),am=g(r,'away_moneyline');
+        up.push({w,away:g(r,'away_team'),home:g(r,'home_team'),line:-(+sl),total:+tl,hml:hm===''?null:+hm,aml:am===''?null:+am,src:'nflverse'})}}}
+  return{hist,up,wkAll,season:ms}}
+// ---- model (C2) ----
+const rd=i=>i<0?-i-1:i>=G?2*G-1-i:i;
+function blur(P,sg){
+  const t=[];let z=0;for(let j=-3;j<=3;j++){const v=Math.exp(-j*j/(2*sg*sg));t.push(v);z+=v}
+  for(let a=0;a<2;a++){const Q=new Float64Array(G*G);
+    for(let i=0;i<G;i++)for(let j=0;j<G;j++){let s=0;for(let k=-3;k<=3;k++){const m=rd((a?j:i)+k);s+=t[k+3]*(a?P[i*G+m]:P[m*G+j])}Q[i*G+j]=s/z}
+    P.set(Q)}
+  let s=0;for(const v of P)s+=v;for(let i=0;i<P.length;i++)P[i]/=s}
+function pmf(s,o){
+  const n=H.length,w=new Float64Array(n);let k=1;
+  for(;;){let sw=0,sq=0;const z=1.5*k;for(let i=0;i<n;i++){const x=(H[i].s-s)/z,v=Math.exp(-.5*x*x);w[i]=v;sw+=v;sq+=v*v}if(sw*sw/sq>=500||k>=3)break;k*=1.2}
+  let sw=0,sm=0;for(let i=0;i<n;i++){sw+=w[i];sm+=w[i]*H[i].s}
+  const sh=Math.round(s-sm/sw),P=new Float64Array(G*G),cl=v=>Math.min(G-1,Math.max(0,v));
+  for(let i=0;i<n;i++){const h=H[i],M=h.F-h.D+sh,q=(h.F+h.D+(o-h.o)-M)/2,fl=Math.floor(q);
+    const d=cl(Math.abs(q-fl-.5)<1e-9?fl+h.p:Math.floor(q+.5));P[cl(d+M)*G+d]+=w[i]}
+  let t=0;for(const v of P)t+=v;for(let i=0;i<P.length;i++)P[i]/=t;
+  blur(P,.7);
+  if(s==0){const Q=new Float64Array(G*G);for(let i=0;i<G;i++)for(let j=0;j<G;j++)Q[i*G+j]=(P[i*G+j]+P[j*G+i])/2;P.set(Q)}
+  return P}
+function best(P,s,o,N){
+  const c=SC[N];let RF=Math.floor((o+s)/2+.5);const RD=Math.floor((o-s)/2+.5);if(RF<=RD)RF=RD+1;
+  const cells=[];let pw=0;for(let i=0;i<G*G;i++)if(P[i]>1e-9){cells.push(i);if(((i/G)|0)>i%G)pw+=P[i]}
+  let bv=-1e9,ba=0,bb=0;
+  for(let a=RF-5;a<=RF+3;a++)for(let b=RD-4;b<=RD+3;b++){if(a<=b||b<0)continue;let pc=0,pf=0,ms=0;
+    for(const i of cells){const ae=Math.abs(a-((i/G)|0))+Math.abs(b-i%G),p=P[i];ms+=p*ae;if(ae<=7)pc+=p;if(ae>=35)pf+=p}
+    const ev=c[2]*pc+c[3]*pf+c[6]*P[a*G+b]+c[5]*(c[4]/N-ms);if(ev>bv){bv=ev;ba=a;bb=b}}
+  return{a:ba,b:bb,ev:bv,pw}}
+// ---- live odds ----
+const jget=async u=>{const r=await fetch(u);if(!r.ok)throw 0;return r.json()};
+async function espn(){const j=await jget(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${$('wk').value}&dates=${D.season}`);const out=[];
+  for(const e of j.events||[]){const c=e.competitions[0],tm={};c.competitors.forEach(x=>tm[x.homeAway]=FIX[x.team.abbreviation]||x.team.abbreviation);
+    const o=(c.odds||[])[0];if(!o||o.overUnder==null)continue;const d=String(o.details||'').trim();let hl=null;
+    if(/^(EVEN|PK|PICK)/i.test(d))hl=0;else{const m=d.match(/^([A-Z]{2,4})\s*([+-]?\d+(?:\.\d+)?)/);if(m){const a=FIX[m[1]]||m[1];hl=a==tm.home?+m[2]:-m[2]}}
+    if(hl!=null)out.push({away:tm.away,home:tm.home,line:hl,total:+o.overUnder})}return out}
+async function oddsApi(){const j=await jget('https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds/?regions=us&markets=spreads,totals&oddsFormat=american&apiKey='+encodeURIComponent($('key').value.trim()));
+  const med=a=>{a.sort((x,y)=>x-y);const m=a.length>>1;return a.length%2?a[m]:(a[m-1]+a[m])/2};const ab=n=>NICK[n.split(' ').pop()]||NICK[n.split(' ').slice(-1)[0]];const out=[];
+  for(const e of j){const s=[],t=[];for(const b of e.bookmakers||[])for(const m of b.markets){
+      if(m.key=='spreads')m.outcomes.forEach(o=>{if(o.name==e.home_team&&o.point!=null)s.push(o.point)});
+      if(m.key=='totals')m.outcomes.forEach(o=>{if(o.name=='Over'&&o.point!=null)t.push(o.point)})}
+    if(s.length&&t.length)out.push({away:ab(e.away_team),home:ab(e.home_team),line:med(s),total:med(t)})}return out}
+async function live(){
+  let msg='nflverse lines (live feed unavailable)';const srcs=[];if($('key').value.trim())srcs.push(['The Odds API',oddsApi]);srcs.push(['ESPN',espn]);
+  for(const[n,f]of srcs){try{const r=await f();let c=0;for(const g of games){const m=r.find(x=>x.away==g.away&&x.home==g.home);if(m){g.line=m.line;g.total=m.total;g.src=n;c++}}
+      if(c){msg=n+' odds for '+c+' games';break}}catch(e){}}return msg}
+// ---- ranking + render ----
+function calc(){
+  if(!H.length)return;const N=Math.min(16,Math.max(11,+$('n').value||14)),c=SC[N];
+  const used=$('used').value.split(/[ ,]+/).map(Number).filter(x=>x>0);
+  const imp=m=>m<0?-m/(-m+100):100/(m+100);
+  for(const g of games){const s=Math.abs(g.line),k=s+'|'+g.total+'|'+N;if(!cache[k])cache[k]=best(pmf(s,g.total),s,g.total,N);g.r=cache[k];
+    const hf=g.line<=0,fm=hf?g.hml:g.aml,dm=hf?g.aml:g.hml;let key=g.r.pw;
+    if($('rb').value=='ml'&&fm!=null&&dm!=null){const a=imp(fm),b=imp(dm);if(a+b>1&&a+b<1.08)key=a/(a+b)}g.key=key}
+  const free=[];for(let i=1;i<=N;i++)if(!used.includes(i))free.push(i);
+  const ord=games.map((g,i)=>i).sort((x,y)=>games[x].key-games[y].key||x-y);
+  ord.forEach((gi,p)=>games[gi].rank=free[p]);
+  let tot=0,h='';
+  for(const g of games.slice().sort((x,y)=>(y.rank||0)-(x.rank||0))){
+    const hf=g.line<=0,fav=hf?g.home:g.away,ap=hf?g.r.b:g.r.a,hp=hf?g.r.a:g.r.b,rk=g.rank,ep=rk?(c[0]+c[1]*rk)*g.r.pw+g.r.ev:NaN;tot+=ep||0;
+    const i=games.indexOf(g);
+    h+=`<div class="g"><div class="rk"><b>${rk??'?'}</b><span>RANK</span></div><div><div class="pk">${g.away} ${ap} &ndash; ${hp} ${g.home}</div>
+    <div class="sub">${fav} ${(-Math.abs(g.line)).toFixed(1)} &middot; O/U ${g.total} &middot; wins ${(g.r.pw*100).toFixed(0)}% &middot; exp ${isNaN(ep)?'-':ep.toFixed(1)} &middot; ${g.src}</div>
+    <input type="number" step="0.5" data-i="${i}" data-f="line" value="${g.line}" title="home line (negative = home favored)"> <input type="number" step="0.5" data-i="${i}" data-f="total" value="${g.total}" title="total"></div></div>`}
+  $('out').innerHTML=h+`<div class="note"><b>Expected points this week (open games): ${tot.toFixed(1)}</b><br>Boxes under each game: home line (negative = home favored) and total.${games.length+used.length!=N?`<br><b>Check:</b> ${games.length} open games + ${used.length} used ranks &ne; ${N} games in the week.`:''}</div>`}
+async function setWeek(){
+  const w=+$('wk').value;games=D.up.filter(x=>x.w==w).map(x=>({...x}));$('n').value=D.wkAll[w]||games.length;
+  $('st').textContent='Loading odds...';const m=await live();$('st').textContent=`Updated ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})} · ${m}`;calc()}
+async function refresh(){
+  $('st').textContent='Downloading games...';
+  try{const t=await(await fetch('https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv?'+Date.now())).text();
+    D=build(t);H=D.hist;cache={};const ws=[...new Set(D.up.map(x=>x.w))].sort((a,b)=>a-b),cur=+$('wk').value;
+    $('wk').innerHTML=ws.map(w=>`<option value="${w}">Week ${w}</option>`).join('');if(ws.includes(cur))$('wk').value=cur;
+    if(!ws.length){$('st').textContent='No upcoming games with lines found.';$('out').innerHTML='';return}
+    await setWeek()}catch(e){$('st').textContent='Could not load data. Check your connection and tap refresh.'}}
+$('key').value=localStorage.getItem('k')||'';
+$('key').onchange=()=>localStorage.setItem('k',$('key').value.trim());
+$('go').onclick=refresh;$('wk').onchange=()=>D&&setWeek();
+['n','used','rb'].forEach(i=>$(i).onchange=calc);
+$('out').onchange=e=>{const t=e.target,g=games[+t.dataset.i];if(g&&t.value!==''){g[t.dataset.f]=+t.value;g.src='edited';calc()}};
+refresh();
+</script></body></html>
